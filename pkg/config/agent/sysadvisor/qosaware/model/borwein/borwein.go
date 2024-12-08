@@ -27,6 +27,7 @@ type BorweinConfiguration struct {
 	ContainerFeatureNames              []string
 	InferenceServiceSocketAbsPath      string
 	ModelNameToInferenceSvcSockAbsPath map[string]string
+	TargetIndicators                   []string
 }
 
 func NewBorweinConfiguration() *BorweinConfiguration {
@@ -40,8 +41,16 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 				RampDownStep:           10,
 				Version:                "default",
 			},
+			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
+				OffsetMax:      0.05,
+				OffsetMin:      -0.1,
+				RampUpFactor:   0.0002,
+				RampDownFactor: 0.0002,
+				Version:        "default",
+			},
 		},
 		NodeFeatureNames:      []string{},
 		ContainerFeatureNames: []string{},
+		TargetIndicators:      []string{},
 	}
 }

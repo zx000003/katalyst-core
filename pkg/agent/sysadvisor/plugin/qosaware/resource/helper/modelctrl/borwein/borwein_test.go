@@ -18,6 +18,7 @@ package borwein
 
 import (
 	"context"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -174,7 +175,8 @@ func TestNewBorweinController(t *testing.T) {
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait):  updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
 				},
 			},
 		},
@@ -256,6 +258,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 		borweinParameter       *borweintypes.BorweinParameter
 		metaReader             metacache.MetaReader
 		inferenceResults       *borweintypes.BorweinInferenceResults
+		emitter                metrics.MetricEmitter
 	}
 	tests := []struct {
 		name    string
@@ -338,7 +341,191 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 			t.Parallel()
 
 			mc.SetInferenceResult(borweinconsts.ModelNameBorwein, tt.args.inferenceResults)
-			got, err := updateCPUSchedWaitIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset, tt.args.borweinParameter, tt.args.metaReader)
+			got, err := updateCPUSchedWaitIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
+				tt.args.borweinParameter, tt.args.metaReader, tt.args.emitter)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("updateCPUSchedWaitIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("updateCPUSchedWaitIndicatorOffset() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_updateCPUUsageWaitIndicatorOffset(t *testing.T) {
+	t.Parallel()
+	podUID1 := "test-pod-uid1"
+	podName1 := "test-pod1"
+	containerName := "test-container"
+	podUID2 := "test-pod-uid2"
+	podName2 := "test-pod2"
+	nodeName := "node1"
+	fakeCPUUsage := 20.0
+
+	checkpointDir, err := ioutil.TempDir("", "checkpoint-updateCPUUsageIndicatorOffset")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(checkpointDir) }()
+
+	stateFileDir, err := ioutil.TempDir("", "statefile-updateCPUUsageIndicatorOffset")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(stateFileDir) }()
+
+	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
+
+	clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+		},
+	}}, nil)
+	metaServer := generateTestMetaServer(clientSet)
+	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
+	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
+		store.SetContainerMetric(podUID1, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
+			Value: fakeCPUUsage,
+		})
+		store.SetContainerMetric(podUID2, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
+			Value: fakeCPUUsage,
+		})
+	})
+	metaServer.MetricsFetcher.Run(context.Background())
+	metaServer.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: podName1,
+				UID:  apitypes.UID(podUID1),
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: containerName,
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: podName1,
+				UID:  apitypes.UID(podUID2),
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: containerName,
+					},
+				},
+			},
+		},
+	}}
+	mc, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metaServer.MetricsFetcher)
+	require.NoError(t, err)
+	mc.AddContainer(podUID1, containerName, &advisortypes.ContainerInfo{
+		PodUID:        podUID1,
+		PodName:       podName1,
+		ContainerName: containerName,
+		ContainerType: v1alpha1.ContainerType_MAIN,
+	})
+	mc.AddContainer(podUID2, containerName, &advisortypes.ContainerInfo{
+		PodUID:        podUID2,
+		PodName:       podName2,
+		ContainerName: containerName,
+		ContainerType: v1alpha1.ContainerType_MAIN,
+	})
+
+	type args struct {
+		podSet                 types.PodSet
+		currentIndicatorOffset float64
+		borweinParameter       *borweintypes.BorweinParameter
+		metaReader             metacache.MetaReader
+		inferenceResults       *borweintypes.BorweinInferenceResults
+		emitter                metrics.MetricEmitter
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    float64
+		wantErr bool
+	}{
+		{
+			name: "test update cpu usage indicator offset down",
+			args: args{
+				podSet: types.PodSet{
+					podUID1: sets.NewString(containerName),
+					podUID2: sets.NewString(containerName),
+				},
+				currentIndicatorOffset: 0.03,
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)],
+				metaReader:             mc,
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": 1.1, \"equilibrium_value\": 0.1}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -1.7, \"equilibrium_value\": 0.1}",
+								},
+							},
+						},
+					},
+				},
+			},
+			want:    0.02992,
+			wantErr: false,
+		},
+		{
+			name: "test update cpu usage indicator offset up",
+			args: args{
+				podSet: types.PodSet{
+					podUID1: sets.NewString(containerName),
+					podUID2: sets.NewString(containerName),
+				},
+				currentIndicatorOffset: 0.01,
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)],
+				metaReader:             mc,
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": 1.8, \"equilibrium_value\": 0.2}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": 0.2, \"equilibrium_value\": 0.2}",
+								},
+							},
+						},
+					},
+				},
+			},
+			want:    0.01016,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
+			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
+			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
+				tt.args.borweinParameter, tt.args.metaReader, tt.args.emitter)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUSchedWaitIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
