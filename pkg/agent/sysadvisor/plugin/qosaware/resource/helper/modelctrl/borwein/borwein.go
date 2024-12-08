@@ -18,6 +18,7 @@ package borwein
 
 import (
 	"fmt"
+	"k8s.io/klog/v2"
 	"math"
 
 	//nolint
@@ -26,6 +27,7 @@ import (
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/latencyregression"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
@@ -69,8 +71,12 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 		emitter:                 emitter,
 	}
 
-	bc.indicatorOffsets[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = 0
+	for _, indicator := range conf.BorweinConfiguration.TargetIndicators {
+		general.Infof("Enable indicator %v offset update", indicator)
+		bc.indicatorOffsets[indicator] = 0
+	}
 	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = updateCPUSchedWaitIndicatorOffset
+	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)] = updateCPUUsageIndicatorOffset
 	bc.borweinParameters = conf.BorweinConfiguration.BorweinParameters
 
 	return bc
@@ -193,6 +199,48 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 	return currentIndicatorOffset, nil
 }
 
+func updateCPUUsageIndicatorOffset(podSet types.PodSet, currentIndicatorOffset float64,
+	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader,
+) (float64, error) {
+	latencyRegressionData, _, err := latencyregression.GetLatencyRegressionPredictResult(metaReader)
+	if err != nil {
+		klog.Errorf("failed to get inference results of model(%s), error: %v", borweinconsts.ModelNameBorweinLatencyRegression, err)
+		return currentIndicatorOffset, err
+	}
+
+	predictSum := 0.0
+	containerCnt := 0.0
+	var equilibriumValue float64
+	// avg by node
+	for _, containerData := range latencyRegressionData {
+		for _, res := range containerData {
+			predictSum += res.PredictValue
+			containerCnt += 1
+			equilibriumValue = res.EquilibriumValue
+		}
+	}
+	predictAvg := predictSum / containerCnt
+
+	if predictAvg > equilibriumValue {
+		diff := predictAvg - equilibriumValue
+		currentIndicatorOffset += diff * borweinParameter.RampUpFactor
+	} else if predictAvg < equilibriumValue {
+		diff := equilibriumValue - predictAvg
+		currentIndicatorOffset -= diff * borweinParameter.RampDownFactor
+	}
+
+	currentIndicatorOffsetRounded, err := general.RoundFloat64(currentIndicatorOffset, 4)
+	if err != nil {
+		return currentIndicatorOffset, err
+	}
+
+	currentIndicatorOffsetRounded = general.Clamp(currentIndicatorOffsetRounded, borweinParameter.OffsetMin, borweinParameter.OffsetMax)
+	general.Infof(string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)+" predictAvg: %v, equilibriumValue: %v, currentIndicatorOffset: %v",
+		predictAvg, equilibriumValue, currentIndicatorOffsetRounded)
+
+	return currentIndicatorOffsetRounded, nil
+}
+
 func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 	if bc.metaReader == nil {
 		general.Errorf("BorweinController got nil metaReader")
@@ -219,7 +267,7 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		}
 
 		bc.indicatorOffsets[indicatorName] = updatedIndicatorOffset
-		general.Infof("update indicator: %s offset from: %.2f to %2.f",
+		general.Infof("update indicator: %s offset from: %.4f to %.4f",
 			indicatorName, currentIndicatorOffset, updatedIndicatorOffset)
 		bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
@@ -240,13 +288,13 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 	// update target indicators by bc.indicatorOffsets
 	for indicatorName, indicatorValue := range indicators {
 		if _, found := bc.indicatorOffsets[indicatorName]; !found {
-			general.Infof("there is no offset for indicator: %s, use its original value(current: %.2f, target: %.2f) without updating",
+			general.Infof("there is no offset for indicator: %s, use its original value(current: %.4f, target: %.4f) without updating",
 				indicatorName, indicatorValue.Current, indicatorValue.Target)
 			updatedIndicators[indicatorName] = indicatorValue
 			continue
 		}
 
-		general.Infof("update indicator: %s taget: %.2f by offset: %.2f",
+		general.Infof("update indicator: %s taget: %.4f by offset: %.4f",
 			indicatorName, indicators[indicatorName].Target,
 			bc.indicatorOffsets[indicatorName])
 
