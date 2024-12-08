@@ -426,3 +426,10 @@ func ConvertBytesToPages(bytes int) int {
 	pageSize := GetPageSize()
 	return (bytes + pageSize - 1) / pageSize // Ceiling division to account for partial pages
 }
+
+func RoundFloat64(num float64, n int) (float64, error) {
+	formatStr := fmt.Sprintf("%%.%df", n)
+	strValue := fmt.Sprintf(formatStr, num)
+	result, err := strconv.ParseFloat(strValue, 64)
+	return result, err
+}

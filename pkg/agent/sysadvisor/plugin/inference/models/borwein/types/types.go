@@ -26,6 +26,8 @@ type BorweinParameter struct {
 	OffsetMin              float64 `json:"offset_min"`
 	RampUpStep             float64 `json:"ramp_up_step"`
 	RampDownStep           float64 `json:"ramp_down_step"`
+	RampUpFactor           float64 `json:"ramp_up_factor"`
+	RampDownFactor         float64 `json:"ramp_down_factor"`
 	Version                string  `json:"version"`
 }
 

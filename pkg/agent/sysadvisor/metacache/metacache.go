@@ -532,7 +532,6 @@ func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{})
 
 	mc.modelMutex.Lock()
 	defer mc.modelMutex.Unlock()
-
 	mc.modelToResult[modelName] = result
 	return nil
 }
