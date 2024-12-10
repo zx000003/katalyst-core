@@ -752,20 +752,10 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	} else if err != nil {
 		return &indicatorTarget, nil
 	}
-	cpuCodeNameInterface := r.metaServer.GetByStringIndex(pkgconsts.MetricCPUCodeName)
-	cpuCodeName, ok := cpuCodeNameInterface.(string)
-	targetKey := indicatorName
-	if ok && len(cpuCodeName) != 0 {
-		targetKey = fmt.Sprintf("%v-%v", indicatorName, cpuCodeName)
-	}
-	// get the indicator target by name and cpu codename first
-	// if not found, get the indicator target by indicator name
-	target, ok := servicePerformanceTarget[targetKey]
+
+	target, ok := servicePerformanceTarget[indicatorName]
 	if !ok {
-		target, ok = servicePerformanceTarget[indicatorName]
-		if !ok {
-			return &indicatorTarget, nil
-		}
+		return &indicatorTarget, nil
 	}
 
 	// get the indicator target in the following order:
