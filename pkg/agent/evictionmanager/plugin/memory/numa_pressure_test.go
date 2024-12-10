@@ -89,6 +89,9 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	assert.NotNil(t, fakeMetricsFetcher)
 
 	now := time.Now()
+	fakeMetricsFetcher.SetByStringIndex(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(numaScaleFactor), Time: &now})
+	fakeMetricsFetcher.GetByStringIndex(consts.MetricMemScaleFactorSystem)
+
 	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(numaScaleFactor), Time: &now})
 	for numaID, numaTotal := range numaTotalMap {
 		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, utilMetric.MetricData{Value: numaTotal, Time: &now})
