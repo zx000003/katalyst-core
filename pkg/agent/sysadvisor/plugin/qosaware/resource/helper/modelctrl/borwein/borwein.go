@@ -246,6 +246,10 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		general.Errorf("BorweinController got nil metaReader")
 		return
 	}
+	if !general.EnableBorwein() {
+		general.Warningf("AB Test selected, skip indicator offset update...")
+		return
+	}
 
 	for indicatorName, currentIndicatorOffset := range bc.indicatorOffsets {
 
@@ -294,7 +298,7 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 			continue
 		}
 
-		general.Infof("update indicator: %s taget: %.4f by offset: %.4f",
+		general.Infof("update indicator: %s target: %.4f by offset: %.4f",
 			indicatorName, indicators[indicatorName].Target,
 			bc.indicatorOffsets[indicatorName])
 
@@ -302,7 +306,20 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 
 		updatedIndicators[indicatorName] = indicatorValue
 	}
-	return updatedIndicators
+
+	// restrict target in specific range
+	finalIndicators := make(types.Indicator, len(updatedIndicators))
+	for indicatorName, indicatorValue := range updatedIndicators {
+		bp := bc.borweinParameters[indicatorName]
+		if bp == nil || bp.IndicatorMin == 0 || bp.IndicatorMax == 0 {
+			continue
+		}
+		indicatorValue.Target = general.Clamp(indicatorValue.Target, bp.IndicatorMin, bp.IndicatorMax)
+		general.Infof("restricted indicator: %s target: %.4f ", indicatorName, updatedIndicators[indicatorName].Target)
+		finalIndicators[indicatorName] = indicatorValue
+	}
+
+	return finalIndicators
 }
 
 func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
@@ -312,7 +329,7 @@ func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, po
 
 func (bc *BorweinController) ResetIndicatorOffsets() {
 	for indicatorName, currentIndicatorOffset := range bc.indicatorOffsets {
-		general.Infof("reset indicator: %s offset from %.2f to 0",
+		general.Infof("reset indicator: %s offset from %.4f to 0",
 			indicatorName, currentIndicatorOffset)
 
 		bc.indicatorOffsets[indicatorName] = 0
