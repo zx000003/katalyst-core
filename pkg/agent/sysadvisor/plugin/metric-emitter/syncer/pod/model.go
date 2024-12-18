@@ -48,12 +48,16 @@ func (p *MetricSyncerPod) modelMetric() {
 		switch typedResults := results.(type) {
 		case *borweintypes.BorweinInferenceResults:
 			typedResults.RangeInferenceResults(func(podUID, containerName string, result *borweininfsvc.InferenceResult) {
+				general.Infof("Got borwein result %v", result)
+
 				if result == nil || result.IsDefault {
+					general.Warningf("borwein nil or default %v", result.IsDefault)
 					return
 				}
 
 				pod, err := p.metaServer.GetPod(context.Background(), podUID)
 				if err != nil || !p.metricPod(pod) {
+					general.Warningf("borwein get pod error %v %v", err, pod)
 					return
 				}
 
@@ -65,6 +69,8 @@ func (p *MetricSyncerPod) modelMetric() {
 				// "Is_Default" cases have been filtered above.
 				validBreakLine := (result.InferenceType == borweininfsvc.InferenceType_ClassificationOverload &&
 					result.Output >= result.Percentile)
+
+				general.Infof("Success to emit borwein result %v", result.Output)
 
 				_ = p.dataEmitter.StoreFloat64(podModelInferenceResultBorwein,
 					float64(result.Output),
