@@ -16,7 +16,19 @@ func EnableBorwein() bool {
 	if mod == -1 {
 		return true
 	}
-	if mod < 80 {
+	if mod > 40 {
+		return true
+	}
+	return false
+}
+
+func EnableDynamicThreshold() bool {
+	mod := ABTestMod()
+	Infof("Node mod is %v", mod)
+	if mod == -1 {
+		return true
+	}
+	if mod > 10 {
 		return true
 	}
 	return false

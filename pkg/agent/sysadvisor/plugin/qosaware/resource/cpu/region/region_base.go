@@ -710,7 +710,11 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 			switch indicatorName {
 			case workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio:
 				// get avg target for cpu_usage_ratio
-				target = avgTarget
+				if general.EnableDynamicThreshold() {
+					target = avgTarget
+				} else {
+					general.Warningf("AB Test selected, skip getting target from spd...")
+				}
 			default:
 				// get min target by default
 				target = minTarget
