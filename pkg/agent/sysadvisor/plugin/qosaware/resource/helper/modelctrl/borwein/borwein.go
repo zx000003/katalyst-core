@@ -221,12 +221,22 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, currentIndicatorOffset f
 	}
 	predictAvg := predictSum / containerCnt
 
+	rampUpFactor := borweinParameter.RampUpFactor
+
+	if general.IsPeakRecoverTime() {
+		rampUpFactor *= 20
+	}
+
 	if predictAvg > equilibriumValue {
 		diff := predictAvg - equilibriumValue
-		currentIndicatorOffset += diff * borweinParameter.RampUpFactor
+		currentIndicatorOffset += diff * rampUpFactor
 	} else if predictAvg < equilibriumValue {
 		diff := equilibriumValue - predictAvg
 		currentIndicatorOffset -= diff * borweinParameter.RampDownFactor
+	}
+
+	if general.IsPeakTime() {
+		currentIndicatorOffset = borweinParameter.OffsetMin
 	}
 
 	currentIndicatorOffsetRounded, err := general.RoundFloat64(currentIndicatorOffset, 4)

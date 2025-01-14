@@ -3,6 +3,7 @@ package general
 import (
 	"hash/crc32"
 	"os"
+	"time"
 )
 
 const (
@@ -16,7 +17,7 @@ func EnableBorwein() bool {
 	if mod == -1 {
 		return true
 	}
-	if mod > 40 {
+	if mod > 10 {
 		return true
 	}
 	return false
@@ -28,7 +29,7 @@ func EnableDynamicThreshold() bool {
 	if mod == -1 {
 		return true
 	}
-	if mod > 10 {
+	if mod > 5 {
 		return true
 	}
 	return false
@@ -42,4 +43,22 @@ func ABTestMod() int {
 	hostname, _ := os.Hostname()
 	hash := crc32.ChecksumIEEE([]byte(hostname))
 	return int(hash) % 100
+}
+
+func IsPeakTime() bool {
+	now := time.Now()
+	hour := now.Hour()
+	if hour == 21 {
+		return true
+	}
+	return false
+}
+
+func IsPeakRecoverTime() bool {
+	now := time.Now()
+	hour := now.Hour()
+	if hour == 22 {
+		return true
+	}
+	return false
 }

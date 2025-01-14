@@ -44,8 +44,8 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
 				OffsetMax:      0.15,
 				OffsetMin:      -0.15,
-				RampUpFactor:   0.0002,
-				RampDownFactor: 0.0002,
+				RampUpFactor:   0.0004,
+				RampDownFactor: 0.0004,
 				Version:        "default",
 				IndicatorMax:   0.85,
 				IndicatorMin:   0.6,
