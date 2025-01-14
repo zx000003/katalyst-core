@@ -221,12 +221,19 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, currentIndicatorOffset f
 	}
 	predictAvg := predictSum / containerCnt
 
+	offsetMin := borweinParameter.OffsetMin
+	rampDownFactor := borweinParameter.RampDownFactor
+	if general.IsPeakTime() {
+		offsetMin -= 0.1
+		rampDownFactor *= 10
+	}
+
 	if predictAvg > equilibriumValue {
 		diff := predictAvg - equilibriumValue
 		currentIndicatorOffset += diff * borweinParameter.RampUpFactor
 	} else if predictAvg < equilibriumValue {
 		diff := equilibriumValue - predictAvg
-		currentIndicatorOffset -= diff * borweinParameter.RampDownFactor
+		currentIndicatorOffset -= diff * rampDownFactor
 	}
 
 	currentIndicatorOffsetRounded, err := general.RoundFloat64(currentIndicatorOffset, 4)
@@ -234,7 +241,7 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, currentIndicatorOffset f
 		return currentIndicatorOffset, err
 	}
 
-	currentIndicatorOffsetRounded = general.Clamp(currentIndicatorOffsetRounded, borweinParameter.OffsetMin, borweinParameter.OffsetMax)
+	currentIndicatorOffsetRounded = general.Clamp(currentIndicatorOffsetRounded, offsetMin, borweinParameter.OffsetMax)
 	general.Infof(string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)+" predictAvg: %v, equilibriumValue: %v, currentIndicatorOffset: %v",
 		predictAvg, equilibriumValue, currentIndicatorOffsetRounded)
 

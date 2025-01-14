@@ -3,6 +3,7 @@ package general
 import (
 	"hash/crc32"
 	"os"
+	"time"
 )
 
 const (
@@ -42,4 +43,13 @@ func ABTestMod() int {
 	hostname, _ := os.Hostname()
 	hash := crc32.ChecksumIEEE([]byte(hostname))
 	return int(hash) % 100
+}
+
+func IsPeakTime() bool {
+	now := time.Now()
+	hour := now.Hour()
+	if hour == 21 {
+		return true
+	}
+	return false
 }
